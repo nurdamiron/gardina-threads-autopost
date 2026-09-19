@@ -25,6 +25,19 @@ for (const [name, val] of Object.entries({
   }
 }
 
+function strictUriEncode(str) {
+  // encodeURIComponent leaves ! ' ( ) * unescaped, but Threads' own link-detection
+  // chokes on a raw "!" in the query value and truncates the link right before it
+  // (confirmed by inspecting a real published post). Escape those too so the whole
+  // wa.me link stays inside a single clickable link fragment.
+  return encodeURIComponent(str).replace(/[!'()*]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase());
+}
+
+const WA_GREETING_RU = "Здравствуйте! Gardina";
+const WA_GREETING_KZ = "Сәлеметсіз бе! Gardina";
+const WA_LINK_RU = `https://wa.me/77079429827?text=${strictUriEncode(WA_GREETING_RU)}`;
+const WA_LINK_KZ = `https://wa.me/77079429827?text=${strictUriEncode(WA_GREETING_KZ)}`;
+
 const KNOWLEDGE_BASE = `# База знаний Gardina
 
 ## Что такое Gardina
@@ -44,9 +57,13 @@ const KNOWLEDGE_BASE = `# База знаний Gardina
 - Контроль всего процесса из одного окна
 
 ## Контакты
-- WhatsApp: +7 707 942 9827 (ссылка для CTA: https://wa.me/77079429827)
+- WhatsApp: +7 707 942 9827
 - Email: info@gardina.kz
-- Сайт: gardina.kz`;
+- Сайт: gardina.kz
+
+## Готовые ссылки для CTA (использовать ТОЧНО как есть, посимвольно, ничего не менять и не перекодировать)
+- Для RU-поста: ${WA_LINK_RU}
+- Для KZ-поста: ${WA_LINK_KZ}`;
 
 const VOICE_GUIDE = `# Голос бренда Gardina в Threads
 
@@ -67,13 +84,14 @@ const VOICE_GUIDE = `# Голос бренда Gardina в Threads
 6. Эмодзи точечно, 1-2 на пост, только где есть реальная эмоция.
 7. RU и KZ — самостоятельные посты (не дословный перевод), но одна и та же мысль/CTA.
 8. CTA в конце поста ОБЯЗАТЕЛЬНО включает все три элемента, без исключений:
-   а) ссылку на WhatsApp с готовым шаблонным текстом сообщения:
-      https://wa.me/77079429827?text=<urlencoded короткое приветствие>
+   а) ссылку на WhatsApp — ИСПОЛЬЗУЙ ГОТОВУЮ ссылку из раздела "Готовые ссылки для CTA"
+      выше, дословно, посимвольно. НЕ составляй ссылку сам и НЕ меняй в ней ни одного
+      символа (не убирай %-коды, не вставляй туда живой текст вместо готовой строки) —
+      это уже правильно закодированная ссылка, любое изменение её сломает.
    б) упоминание сайта: gardina.kz
    в) по желанию можно ещё предложить написать «Gardina» в комментариях —
       это ДОПОЛНЕНИЕ, а не замена пунктов (а) и (б).
-   Пример правильного финала поста: "Погнали: gardina.kz или сразу в WhatsApp —
-   https://wa.me/77079429827?text=Здравствуйте!%20Gardina"
+   Пример правильного финала RU-поста: "Погнали: gardina.kz или сразу в WhatsApp — ${WA_LINK_RU}"
    Без wa.me-ссылки и упоминания сайта пост считается НЕЗАВЕРШЁННЫМ.
 
 Чего не делать:
