@@ -80,6 +80,44 @@ const VOICE_GUIDE = `# Голос бренда Gardina в Threads
 - Каждый пост не длиннее ~450 символов (лимит Threads — 500).`;
 
 const HISTORY_LOG_PATH = path.join(process.cwd(), "data", "posts-log.json");
+const HEALTH_PATH = path.join(process.cwd(), "data", "health.json");
+const PAUSE_THRESHOLD = 2;
+
+function loadHealth() {
+  try {
+    return JSON.parse(fs.readFileSync(HEALTH_PATH, "utf8"));
+  } catch {
+    return { consecutiveFailures: 0, paused: false, lastUpdated: null };
+  }
+}
+
+function saveHealth(health) {
+  fs.mkdirSync(path.dirname(HEALTH_PATH), { recursive: true });
+  fs.writeFileSync(
+    HEALTH_PATH,
+    JSON.stringify({ ...health, lastUpdated: new Date().toISOString() }, null, 2) + "\n",
+    "utf8"
+  );
+}
+
+function recordFailure(reason) {
+  const health = loadHealth();
+  health.consecutiveFailures = (health.consecutiveFailures || 0) + 1;
+  if (health.consecutiveFailures >= PAUSE_THRESHOLD) {
+    health.paused = true;
+    tgSend(
+      `⛔ Автопостинг ПОСТАВЛЕН НА ПАУЗУ: ${health.consecutiveFailures} ошибки подряд ` +
+        `(последняя: ${String(reason).slice(0, 200)}). Похоже на блок/чекпоинт аккаунта, а не разовый сбой. ` +
+        `Дальше запуски будут пропускаться, пока кто-то вручную не проверит аккаунт и не сбросит ` +
+        `data/health.json (paused: false, consecutiveFailures: 0) в репозитории.`
+    );
+  }
+  saveHealth(health);
+}
+
+function recordSuccess() {
+  saveHealth({ consecutiveFailures: 0, paused: false });
+}
 const ANGLE_HINTS =
   `Выбирай новый угол каждый раз: боль про Excel/вацап, уход сотрудника с историей клиента, ` +
   `вопрос-пост "как ведёте заказы", цена/тариф как точка входа, честность/анти-понты, ` +
@@ -240,12 +278,20 @@ function threadsPost(text) {
 }
 
 async function main() {
+  const health = loadHealth();
+  if (health.paused) {
+    console.log("Autopost is paused (repeated failures earlier) — skipping this run silently.");
+    return;
+  }
+
   console.log("Checking Threads auth...");
   if (!threadsWhoami()) {
+    const reason = "сессия Threads протухла или аккаунт заблокирован (whoami не прошёл)";
     tgSend(
       "⚠️ Сессия Threads протухла. Нужен ручной релогин на threads.net в браузере и " +
         "обновление THREADS_SESSION_ID / THREADS_CSRF_TOKEN в GitHub Secrets репозитория."
     );
+    recordFailure(reason);
     console.error("Threads auth failed, stopping.");
     process.exit(1);
   }
@@ -323,6 +369,7 @@ async function main() {
       "⚠️ Сессия Threads протухла (проверено перед публикацией). Нужен ручной релогин " +
         "на threads.net и обновление THREADS_SESSION_ID / THREADS_CSRF_TOKEN в GitHub Secrets."
     );
+    recordFailure("whoami failed before posting");
     process.exit(1);
   }
 
@@ -338,6 +385,7 @@ async function main() {
       { date: today, lang: "ru", text: draft.ru, url: ruUrl },
       { date: today, lang: "kz", text: draft.kz, url: kzUrl },
     ]);
+    recordSuccess();
     tgSend(
       `✅ Опубликовано${decision === "revise" ? " (текст изменён по твоей правке)" : ""}:\n` +
         `RU: ${ruUrl}\nKZ: ${kzUrl}`
@@ -345,6 +393,7 @@ async function main() {
     console.log("Done:", { ruUrl, kzUrl });
   } catch (e) {
     tgSend(`⚠️ Ошибка при публикации в Threads: ${String(e).slice(0, 300)}`);
+    recordFailure(String(e));
     console.error("Posting failed:", e);
     process.exit(1);
   }
