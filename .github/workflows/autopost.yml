@@ -1,0 +1,26 @@
+name: Gardina Threads Autopost
+
+on:
+  schedule:
+    - cron: "23 8 * * *" # 13:23 Asia/Almaty (UTC+5)
+  workflow_dispatch: {}
+
+jobs:
+  autopost:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Run autopost
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          THREADS_SESSION_ID: ${{ secrets.THREADS_SESSION_ID }}
+          THREADS_CSRF_TOKEN: ${{ secrets.THREADS_CSRF_TOKEN }}
+        run: node scripts/autopost.mjs
