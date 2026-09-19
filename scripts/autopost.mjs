@@ -79,15 +79,42 @@ const VOICE_GUIDE = `# Голос бренда Gardina в Threads
 - Не использовать символ ₸. Писать "тенге"/"теңге" словом.
 - Каждый пост не длиннее ~450 символов (лимит Threads — 500).`;
 
-const HISTORY = `# История уже опубликованных постов (не повторяй формулировки/зацепки дословно)
-- 2026-09-15: вопрос про учёт заказов → боль/последствия → презентация + CTA (RU+KZ)
-- 2026-09-18: боль Excel/вацап, CTA через wa.me со ссылкой-шаблоном (RU+KZ)
-- 2026-09-19: боль "менеджер ушёл в декрет — история клиента потерялась" (тестовый прогон)
-- 2026-09-19: боль "клиенты звонят спросить где заказ, менеджер роется в блокноте" (тестовый прогон)
+const HISTORY_LOG_PATH = path.join(process.cwd(), "data", "posts-log.json");
+const ANGLE_HINTS =
+  `Выбирай новый угол каждый раз: боль про Excel/вацап, уход сотрудника с историей клиента, ` +
+  `вопрос-пост "как ведёте заказы", цена/тариф как точка входа, честность/анти-понты, ` +
+  `звонки "где мой заказ", путаница между менеджером и швеёй/замерщицей, отзыв довольного клиента и т.п. ` +
+  `В день выходит несколько постов — каждый должен цеплять свой угол, не быть вариацией уже написанного.`;
 
-Выбирай новый угол каждый день: боль про Excel/вацап, уход сотрудника с историей клиента,
-вопрос-пост "как ведёте заказы", цена/тариф как точка входа, честность/анти-понты,
-звонки "где мой заказ", путаница между менеджером и швеёй/замерщицей и т.п.`;
+function loadHistoryLog() {
+  try {
+    return JSON.parse(fs.readFileSync(HISTORY_LOG_PATH, "utf8"));
+  } catch {
+    return [];
+  }
+}
+
+function appendHistoryLog(entries) {
+  const log = loadHistoryLog().concat(entries);
+  fs.mkdirSync(path.dirname(HISTORY_LOG_PATH), { recursive: true });
+  fs.writeFileSync(HISTORY_LOG_PATH, JSON.stringify(log, null, 2) + "\n", "utf8");
+}
+
+function buildHistoryContext() {
+  const recent = loadHistoryLog().slice(-30);
+  if (!recent.length) {
+    return `# История уже опубликованных постов\n(пусто, это первый пост)\n\n${ANGLE_HINTS}`;
+  }
+  const lines = recent.map((e) => {
+    const short = e.text.replace(/\s+/g, " ").slice(0, 140);
+    return `- ${e.date} ${String(e.lang).toUpperCase()}: ${short}${e.text.length > 140 ? "…" : ""}`;
+  });
+  return (
+    `# История уже опубликованных постов (не повторяй формулировки/зацепки дословно)\n` +
+    lines.join("\n") +
+    `\n\n${ANGLE_HINTS}`
+  );
+}
 
 function llmChat(system, userText) {
   const body = JSON.stringify({
@@ -121,7 +148,7 @@ function parseDraftJson(text) {
 }
 
 function generateDraft(feedback, previousDraft) {
-  const system = `${KNOWLEDGE_BASE}\n\n${VOICE_GUIDE}\n\n${HISTORY}`;
+  const system = `${KNOWLEDGE_BASE}\n\n${VOICE_GUIDE}\n\n${buildHistoryContext()}`;
   let userText;
   if (feedback && previousDraft) {
     userText =
@@ -306,6 +333,11 @@ async function main() {
     const kz = threadsPost(draft.kz);
     const ruUrl = ru.url || `https://www.threads.net/t/${ru.code}`;
     const kzUrl = kz.url || `https://www.threads.net/t/${kz.code}`;
+    const today = new Date().toISOString().slice(0, 10);
+    appendHistoryLog([
+      { date: today, lang: "ru", text: draft.ru, url: ruUrl },
+      { date: today, lang: "kz", text: draft.kz, url: kzUrl },
+    ]);
     tgSend(
       `✅ Опубликовано${decision === "revise" ? " (текст изменён по твоей правке)" : ""}:\n` +
         `RU: ${ruUrl}\nKZ: ${kzUrl}`
