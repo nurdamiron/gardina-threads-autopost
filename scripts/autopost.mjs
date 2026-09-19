@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 const {
-  ANTHROPIC_API_KEY,
+  PERPLEXITY_API_KEY,
   TELEGRAM_BOT_TOKEN,
   TELEGRAM_CHAT_ID,
   THREADS_SESSION_ID,
@@ -13,7 +13,7 @@ const {
 } = process.env;
 
 for (const [name, val] of Object.entries({
-  ANTHROPIC_API_KEY,
+  PERPLEXITY_API_KEY,
   TELEGRAM_BOT_TOKEN,
   TELEGRAM_CHAT_ID,
   THREADS_SESSION_ID,
@@ -82,26 +82,26 @@ const HISTORY = `# История уже опубликованных посто
 вопрос-пост "как ведёте заказы", цена/тариф как точка входа, честность/анти-понты,
 звонки "где мой заказ", путаница между менеджером и швеёй/замерщицей и т.п.`;
 
-function anthropicMessages(system, userText) {
+function llmChat(system, userText) {
   const body = JSON.stringify({
-    model: "claude-sonnet-5",
-    max_tokens: 1200,
-    system,
-    messages: [{ role: "user", content: userText }],
+    model: process.env.PERPLEXITY_MODEL || "sonar",
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: userText },
+    ],
   });
   const res = execSync(
-    `curl -sS https://api.anthropic.com/v1/messages ` +
-      `-H "x-api-key: $ANTHROPIC_API_KEY" ` +
-      `-H "anthropic-version: 2023-06-01" ` +
+    `curl -sS https://api.perplexity.ai/chat/completions ` +
+      `-H "Authorization: Bearer $PERPLEXITY_API_KEY" ` +
       `-H "content-type: application/json" ` +
       `-d @-`,
     { input: body, env: process.env, encoding: "utf8", maxBuffer: 10 * 1024 * 1024 }
   );
   const data = JSON.parse(res);
   if (data.error) {
-    throw new Error(`Anthropic API error: ${JSON.stringify(data.error)}`);
+    throw new Error(`Perplexity API error: ${JSON.stringify(data.error)}`);
   }
-  return data.content[0].text.trim();
+  return data.choices[0].message.content.trim();
 }
 
 function parseDraftJson(text) {
@@ -127,7 +127,7 @@ function generateDraft(feedback, previousDraft) {
       `Напиши НОВУЮ пару постов (RU и KZ) для Threads на сегодня, следуя голосу бренда и не повторяя углы из истории. ` +
       `Ответь СТРОГО валидным JSON без markdown-обёртки в формате {"ru": "...", "kz": "..."}, без пояснений до или после.`;
   }
-  const raw = anthropicMessages(system, userText);
+  const raw = llmChat(system, userText);
   return parseDraftJson(raw);
 }
 
