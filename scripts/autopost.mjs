@@ -145,14 +145,37 @@ function tgApi(method, params) {
   return JSON.parse(res);
 }
 
-function tgSend(text) {
-  return tgApi("sendMessage", { chat_id: TELEGRAM_CHAT_ID, text });
+function tgSend(text, replyMarkup) {
+  const params = { chat_id: TELEGRAM_CHAT_ID, text };
+  if (replyMarkup) params.reply_markup = JSON.stringify(replyMarkup);
+  return tgApi("sendMessage", params);
 }
 
 function tgGetUpdates(offset) {
   const params = offset !== undefined ? { offset: String(offset) } : {};
   return tgApi("getUpdates", params);
 }
+
+function tgAnswerCallback(callbackQueryId, text) {
+  return tgApi("answerCallbackQuery", { callback_query_id: callbackQueryId, text: text || "" });
+}
+
+function tgClearButtons(chatId, messageId) {
+  return tgApi("editMessageReplyMarkup", {
+    chat_id: chatId,
+    message_id: String(messageId),
+    reply_markup: JSON.stringify({ inline_keyboard: [] }),
+  });
+}
+
+const APPROVE_KEYBOARD = {
+  inline_keyboard: [
+    [
+      { text: "✅ Опубликовать", callback_data: "approve" },
+      { text: "❌ Отменить", callback_data: "cancel" },
+    ],
+  ],
+};
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -211,37 +234,47 @@ async function main() {
     base = Math.max(...initial.result.map((u) => u.update_id));
   }
 
-  tgSend(
+  const draftMsg = tgSend(
     `Черновик поста в Threads (RU+KZ):\n\n` +
       `RU:\n${draft.ru}\n\n` +
       `KZ:\n${draft.kz}\n\n` +
-      `Ответь «стоп» в этом чате в течение 30 минут, чтобы отменить публикацию. ` +
-      `Любой другой ответ = правки, перепишу с их учётом. Без ответа — опубликую как есть через 30 минут.`
+      `Нажми кнопку ниже, или ответь текстом: «стоп» — отменить, любой другой текст — правки. ` +
+      `Без ответа за 30 минут — опубликую как есть.`,
+    APPROVE_KEYBOARD
   );
+  const draftMessageId = draftMsg.result && draftMsg.result.message_id;
 
   let decision = "approve";
   let feedbackText = null;
 
   const ATTEMPTS = 6;
   const INTERVAL_MS = 5 * 60 * 1000;
-  for (let i = 0; i < ATTEMPTS; i++) {
+  outer: for (let i = 0; i < ATTEMPTS; i++) {
     console.log(`Waiting for reaction, attempt ${i + 1}/${ATTEMPTS}...`);
     await sleep(INTERVAL_MS);
     const updates = tgGetUpdates(base + 1);
-    const msgs = (updates.result || []).filter(
-      (u) => u.message && String(u.message.chat.id) === String(TELEGRAM_CHAT_ID) && u.update_id > base
-    );
-    if (msgs.length) {
-      const last = msgs[msgs.length - 1];
-      base = last.update_id;
-      const t = (last.message.text || "").toLowerCase();
-      if (/стоп|нет|отмена|cancel|no/.test(t)) {
-        decision = "cancel";
-      } else {
-        decision = "revise";
-        feedbackText = last.message.text;
+    for (const u of updates.result || []) {
+      if (u.update_id <= base) continue;
+      base = u.update_id;
+
+      if (u.callback_query && String(u.callback_query.message.chat.id) === String(TELEGRAM_CHAT_ID)) {
+        const cq = u.callback_query;
+        tgAnswerCallback(cq.id, cq.data === "cancel" ? "Отменяю" : "Публикую");
+        if (draftMessageId) tgClearButtons(TELEGRAM_CHAT_ID, draftMessageId);
+        decision = cq.data === "cancel" ? "cancel" : "approve";
+        break outer;
       }
-      break;
+
+      if (u.message && String(u.message.chat.id) === String(TELEGRAM_CHAT_ID) && u.message.text) {
+        const t = u.message.text.toLowerCase();
+        if (/стоп|нет|отмена|cancel|no/.test(t)) {
+          decision = "cancel";
+        } else {
+          decision = "revise";
+          feedbackText = u.message.text;
+        }
+        break outer;
+      }
     }
   }
 
